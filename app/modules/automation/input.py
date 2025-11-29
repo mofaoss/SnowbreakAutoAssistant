@@ -97,8 +97,8 @@ class Input:
             "mouse_wheel": 0x020A,
         }
         self.MwParam = {
-            "x1": 0x0001,  # 侧键后退按钮
-            "x2": 0x0002,  # 侧键前进按钮
+            "x1": 0x0001<<16,  # 侧键后退按钮
+            "x2": 0x0002<<16,  # 侧键前进按钮
         }
         # 排除缩放干扰
         ctypes.windll.user32.SetProcessDPIAware()
