@@ -62,15 +62,16 @@ class CapturePalsModule:
         # -------------------------
         # 选岛与开始作战
         # -------------------------
-        self.island_image = "app/resource/images/capture_pals/island.png"
+        self.partner_island_image = "app/resource/images/capture_pals/partner_island.png"
+        self.adventure_island_image = "app/resource/images/capture_pals/adventure_island.png"
 
         # 伙伴岛
-        self.partner_island_crop = (705 / 1920, 453 / 1080, 767 / 1920,
-                                    507 / 1080)
+        self.partner_island_crop = (707 / 1920, 451 / 1080, 770 / 1920,
+                                    504 / 1080)
 
         # 探险岛
-        self.adventure_island_crop = (1318 / 1920, 556 / 1080, 1377 / 1920,
-                                      608 / 1080)
+        self.adventure_island_crop = (1318 / 1920, 558 / 1080, 1378 / 1920,
+                                      612 / 1080)
 
         # 开始作战：text “开始”
         self.start_battle_text = "开始"
@@ -597,6 +598,7 @@ class CapturePalsModule:
         """
         timeout = Timer(25).start()
 
+        island_img = self.partner_island_image if island.name == "伙伴岛" else self.adventure_island_image
         island_crop = self.partner_island_crop if island.name == "伙伴岛" else self.adventure_island_crop
 
         # 可按需调整
@@ -614,19 +616,18 @@ class CapturePalsModule:
                 self.logger.info(f"{island.name}：已进入地图（任务图标已出现）")
                 return True
             # 2) 点击岛按钮（坐标）
-            if self.auto.find_element(self.island_image,
-                                      "image",
-                                        crop=self.partner_island_crop,
-                                        is_log=self.is_log):
-                try:
-                    self._click_crop_center(island_crop)
-                    if self.is_log:
-                        self.logger.debug(f"{island.name}：坐标点击岛按钮中心点")
-                except Exception as e:
-                    self.logger.error(f"{island.name}：坐标点击岛按钮失败：{e}")
+            for _ in range(3):  # 防御式，点3次
+                self.auto.take_screenshot()
+                if self.auto.click_element(island_img,
+                                            "image",
+                                            threshold=0.5,
+                                            crop=island_crop,
+                                            is_log=self.is_log):
+                    self.sleep_with_log(AFTER_CLICK_ISLAND_SLEEP)
+                    break
+                else:
+                    self.logger.error(f"{island.name}：点击岛按钮失败（请检查island_text及crop）")
                     return False
-
-                self.sleep_with_log(AFTER_CLICK_ISLAND_SLEEP)
 
             # 3) 等待“开始”按钮出现（或者期间已经进图）
             start_wait = Timer(START_BTN_WAIT_SEC).start()
@@ -643,13 +644,16 @@ class CapturePalsModule:
             # 4) 若找到了“开始”，点击一次然后回到外层循环等待 in_map
                 for _ in range(3):  # 防御式，点3次
                     self.auto.take_screenshot()
-                    self.auto.click_element(self.start_battle_text,
+                    if self.auto.click_element(self.start_battle_text,
                                             "text",
                                             crop=self.start_battle_crop,
-                                            is_log=self.is_log)
-                    self.sleep_with_log(0.5)
+                                            is_log=self.is_log):
+                        self.sleep_with_log(0.5)
+                        start_found = True
+                        break
 
                 # 立刻再判一次
+                if start_found:
                     self.auto.take_screenshot()
                     if self.is_in_map():
                         self.logger.info(f"{island.name}：已进入地图")
@@ -657,7 +661,7 @@ class CapturePalsModule:
 
                     # 没进图就继续 while，让它再次点岛/等开始/点开始，直到总 timeout
                 else:
-                    # 5) 没找到“开始”，且也不在图内：按 ESC 清理 UI，再重试
+                    # 5) 没找到“开始”，且也不在图内, 等待
                     retry += 1
                     # 如果单轮重试次数用完，给更明确的提示（但不立刻失败，仍受总 timeout 控制）
                     if retry >= RETRY_PER_LOOP:
@@ -717,11 +721,12 @@ class CapturePalsModule:
                 self.logger.info("尝试点击确认退出按钮")
                 for _ in range(3):  # 防御式，点两次
                     self.auto.take_screenshot()
-                    self.auto.click_element(self.btn_exit_confirm_text,
+                    if self.auto.click_element(self.btn_exit_confirm_text,
                                             "text",
                                             crop=self.btn_exit_confirm_crop,
-                                            is_log=self.is_log)
-                    self.sleep_with_log(0.5)
+                                            is_log=self.is_log):
+                        self.sleep_with_log(0.5)
+                        break
 
             # 回到选岛界面判定
             if self.is_on_island_select_page():
@@ -733,17 +738,6 @@ class CapturePalsModule:
                     "退出地图超时（检查：退出按钮图片/crop/threshold、确认“确定”crop、选岛判定）")
                 return False
 
-    def _click_crop_center(self, crop_norm):
-        """
-        直接点击 crop 的中心点（不做模板匹配）
-        crop_norm: (x1/1920, y1/1080, x2/1920, y2/1080)
-        你的日志显示客户端正好 1920x1080，因此这里按 1920x1080 计算像素坐标。
-        """
-        x1, y1, x2, y2 = crop_norm
-        cx = int(((x1 + x2) / 2.0) * 1920)
-        cy = int(((y1 + y2) / 2.0) * 1080)
-        self.auto.move_click(cx, cy)
-
     def is_on_island_select_page(self) -> bool:
         """
         选岛页判定：只要在“伙伴岛 crop”里能识别到 island.png，就认为在正确页面
@@ -751,13 +745,13 @@ class CapturePalsModule:
         """
         self.auto.take_screenshot()
 
-        ok_partner = self.auto.find_element(self.island_image,
-                                            "image",
-                                            threshold=0.5,
-                                            crop=self.partner_island_crop,
-                                            is_log=self.is_log,
-                                            match_method=cv2.TM_CCOEFF_NORMED)
-        return bool(ok_partner)
+        return self.auto.find_element(self.partner_island_image,
+                                      "image",
+                                      threshold=0.5,
+                                      crop=self.partner_island_crop,
+                                      is_log=self.is_log,
+                                      match_method=cv2.TM_CCOEFF_NORMED)
+
 
     def sleep_with_log(self, sec: float, msg: str = "", tick: float = 0.2):
         if sec <= 0:
