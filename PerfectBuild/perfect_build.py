@@ -14,13 +14,13 @@ def app_dir():
 
 
 class Config:
-    app_ver = "2.0.7-official"
+    app_ver = "2.0.8-beta"
     app_name = "SAA"
     app_exec = "SAA"
-    app_publisher = "laozhu"
-    app_url = "https://github.com/LaoZhuJackson/SnowbreakAutoAssistant"
+    app_publisher = "mofaoss"
+    app_url = "https://github.com/mofaoss/SnowbreakAutoAssistant"
     app_icon = "app/resource/images/logo.ico"
-    app_dir = "D:/Learning/Project/auto_chenbai"
+    app_dir = "D:/Workspace/SnowbreakAutoAssistant"
     # app_dir = app_dir()
 
 # class MainWindow(QDialog):

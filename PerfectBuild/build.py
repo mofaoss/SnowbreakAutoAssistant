@@ -21,7 +21,7 @@ import uuid
 # python .\PerfectBuild\build.py --n
 
 
-iss_compiler = "D:\\software\\innosetup\\Inno Setup 6\\Compil32.exe"
+iss_compiler = "C:\\Users\\Japhen\\AppData\\Local\\Programs\\Inno Setup 6\\Compil32.exe"
 
 
 # subprocess.call(['pip', 'install', '-U', 'nuitka'])
