@@ -104,7 +104,6 @@ class CapturePalsModule:
 
     def _click_image_repeat_if_present(self, img_path: str, crop: tuple, threshold: float, max_times: int, sleep_sec: float = 0.0):
         """
-        语义保持与你当前 _retry_click_image 一致：
         - 只要还能 click（即找到了并点了），就继续点
         - 最多点 max_times 次
         """
@@ -121,6 +120,14 @@ class CapturePalsModule:
             clicked = self.auto.click_element(text, "text", crop=crop, is_log=self.is_log)
             if not clicked:
                 return
+            if sleep_sec > 0:
+                self.sleep_with_log(sleep_sec)
+            self._refresh()
+
+    def _right_click_repeat(self, x: float, y: float, max_times: int = 5, press_time: float = 0.06,
+                            per_try_timeout: float = 0.6, sleep_sec: float = 0.08,) -> None:
+        for _ in range(max_times):
+            self.auto.move_click(x, y, "right", press_time=press_time, time_out=per_try_timeout)
             if sleep_sec > 0:
                 self.sleep_with_log(sleep_sec)
             self._refresh()
@@ -479,8 +486,6 @@ class CapturePalsModule:
 
             # 点击岛（最多 N 次）
             self._click_image_repeat_if_present(island_img, crop=island_crop, threshold=0.5, max_times=self._RETRY_PER_ACTION, sleep_sec=1.0)
-
-            # 这段等待你原来写的是 sleep(1)，我保持语义但用 sleep_with_log（可中断）
             self.sleep_with_log(1.0)
 
             # 点击“开始”（最多 N 次）
@@ -510,6 +515,9 @@ class CapturePalsModule:
 
             # 只在地图内才执行退出链
             if self.is_in_map_no_refresh():
+                self._right_click_repeat(656 / 1920, 497 / 1080)
+                self.sleep_with_log(0.2)
+
                 self.auto.press_key("esc")
                 self.sleep_with_log(1.5)
 
@@ -539,9 +547,6 @@ class CapturePalsModule:
         self.logger.error("退出地图超时（检查：退出按钮图片/crop/threshold、确认按钮crop、选岛判定）")
         return False
 
-    # =========================================================
-    # 你已有的抓取动作逻辑可原封不动保留（这里不展开改动）
-    # =========================================================
     def _wait_collect_state(self, want_present: bool, timeout_sec: float, interval: float = 0.1, stable_count: int = 3) -> bool:
         t = Timer(timeout_sec).start()
         streak = 0
@@ -577,7 +582,7 @@ class CapturePalsModule:
             self.logger.warning(f"{island.name}：按F后图标未消失（尝试{self.MAX_FAILED_F_ATTEMPTS}次），疑似到上限或交互失败")
             return "CAP_REACHED"
 
-        reappeared = self._wait_collect_state(True, timeout_sec=5, interval=0.15, stable_count=3)
+        reappeared = self._wait_collect_state(True, timeout_sec=6.5, interval=0.15, stable_count=3)
         if reappeared:
             self.logger.warning(f"{island.name}：F提示消失后又重新出现，疑似达到每日抓帕鲁上限")
             return "CAP_REACHED"
@@ -609,7 +614,6 @@ class CapturePalsModule:
 
         end = time.monotonic() + float(sec)
         while True:
-            # atoms 触发点：可 stop/pause
             self.auto.take_screenshot(is_interval=False)
 
             remaining = end - time.monotonic()
