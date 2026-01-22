@@ -125,6 +125,14 @@ class CapturePalsModule:
                 self.sleep_with_log(sleep_sec)
             self._refresh()
 
+    def _right_click_repeat(self, x: float, y: float, max_times: int = 5, press_time: float = 0.06,
+                            per_try_timeout: float = 0.6, sleep_sec: float = 0.08,) -> None:
+        for _ in range(max_times):
+            self.auto.move_click(x, y, "right", press_time=press_time, time_out=per_try_timeout)
+            if sleep_sec > 0:
+                self.sleep_with_log(sleep_sec)
+            self._refresh()
+
     # =========================================================
     # 状态判定：对外版本会 refresh；内部 no_refresh 避免重复截图
     # =========================================================
@@ -510,6 +518,9 @@ class CapturePalsModule:
 
             # 只在地图内才执行退出链
             if self.is_in_map_no_refresh():
+                self._right_click_repeat(656 / 1920, 497 / 1080)
+                self.sleep_with_log(0.2)
+
                 self.auto.press_key("esc")
                 self.sleep_with_log(1.5)
 
@@ -609,7 +620,6 @@ class CapturePalsModule:
 
         end = time.monotonic() + float(sec)
         while True:
-            # atoms 触发点：可 stop/pause
             self.auto.take_screenshot(is_interval=False)
 
             remaining = end - time.monotonic()
