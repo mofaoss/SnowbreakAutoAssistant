@@ -588,7 +588,7 @@ class CapturePalsModule:
             self.logger.warning(f"{island.name}：按F后图标未消失（尝试{self.MAX_FAILED_F_ATTEMPTS}次），疑似到上限或交互失败")
             return "CAP_REACHED"
 
-        reappeared = self._wait_collect_state(True, timeout_sec=5, interval=0.15, stable_count=3)
+        reappeared = self._wait_collect_state(True, timeout_sec=6.5, interval=0.15, stable_count=3)
         if reappeared:
             self.logger.warning(f"{island.name}：F提示消失后又重新出现，疑似达到每日抓帕鲁上限")
             return "CAP_REACHED"
