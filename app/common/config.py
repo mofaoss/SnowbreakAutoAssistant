@@ -204,7 +204,7 @@ class Config(QConfig):
         BoolValidator()
     )
 
-    # 是否启用同步抓帕鲁（仅在双岛勾选时有效；或你也可以让模式=2强制同步）
+    # 是否启用同步抓帕鲁（仅在双岛勾选时有效）
     CheckBox_capture_pals_sync = ConfigItem(
         "add_capture_pals",
         "CheckBox_capture_pals_sync",
@@ -229,11 +229,11 @@ class Config(QConfig):
     )
 
     # 伙伴岛：巡逻抓帕鲁刷新间隔（秒）
-    # 默认 2s（每次抓完退出等待刷新再进）
+    # 默认 10s（每次抓完退出等待刷新再进）
     SpinBox_capture_pals_partner_patrol_interval = ConfigItem(
         "add_capture_pals",
         "SpinBox_capture_pals_partner_patrol_interval",
-        2
+        10
     )
 
     # 探险岛：定点抓帕鲁间隔（秒）

@@ -104,7 +104,6 @@ class CapturePalsModule:
 
     def _click_image_repeat_if_present(self, img_path: str, crop: tuple, threshold: float, max_times: int, sleep_sec: float = 0.0):
         """
-        语义保持与你当前 _retry_click_image 一致：
         - 只要还能 click（即找到了并点了），就继续点
         - 最多点 max_times 次
         """
@@ -487,8 +486,6 @@ class CapturePalsModule:
 
             # 点击岛（最多 N 次）
             self._click_image_repeat_if_present(island_img, crop=island_crop, threshold=0.5, max_times=self._RETRY_PER_ACTION, sleep_sec=1.0)
-
-            # 这段等待你原来写的是 sleep(1)，我保持语义但用 sleep_with_log（可中断）
             self.sleep_with_log(1.0)
 
             # 点击“开始”（最多 N 次）
@@ -550,9 +547,6 @@ class CapturePalsModule:
         self.logger.error("退出地图超时（检查：退出按钮图片/crop/threshold、确认按钮crop、选岛判定）")
         return False
 
-    # =========================================================
-    # 你已有的抓取动作逻辑可原封不动保留（这里不展开改动）
-    # =========================================================
     def _wait_collect_state(self, want_present: bool, timeout_sec: float, interval: float = 0.1, stable_count: int = 3) -> bool:
         t = Timer(timeout_sec).start()
         streak = 0
