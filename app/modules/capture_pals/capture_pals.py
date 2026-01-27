@@ -318,6 +318,9 @@ class CapturePalsModule:
             f"(partner≈{partner.period_sec():.0f}s, adventure≈{adventure.period_sec():.0f}s)"
         )
 
+        # ==========================================
+        # 内部辅助函数
+        # ==========================================
         def available(st: _SyncState) -> bool:
             return not (st.done or st.error)
 
@@ -325,6 +328,7 @@ class CapturePalsModule:
             return (partner.done or partner.error) and (adventure.done or adventure.error)
 
         def mark_result(st: _SyncState, result: str) -> bool:
+            """返回 True 表示该岛已完结/异常，需要立即停止"""
             if result == "CAP_REACHED":
                 st.done = True
                 self.logger.warn(f"{st.profile.name}：检测到每日抓帕鲁上限（同步模式将不再前往该岛）")
@@ -335,134 +339,152 @@ class CapturePalsModule:
                 limit = self.PATROL_NO_COLLECT_MAX if st.mode == 1 else self.FIXED_NO_COLLECT_MAX
                 self.logger.warning(
                     f"{st.profile.name}：未找到F抓帕鲁提示，连续次数={st.no_collect_streak}/{limit}"
-                    + ("（巡逻）" if st.mode == 1 else "（定点，可能在等刷新）")
                 )
                 if st.no_collect_streak >= limit:
                     st.error = True
-                    self.logger.error(
-                        f"{st.profile.name}：连续多轮未出现F提示，标记该岛异常并停止前往。"
-                        f"{'（巡逻可能路线/站位不对）' if st.mode == 1 else '（定点可能点位不对）'}"
-                    )
+                    self.logger.error(f"{st.profile.name}：连续多轮未出现F提示，标记异常。")
                     return True
             else:
                 st.no_collect_streak = 0
             return False
 
-        def leave_to_select() -> bool:
+        def leave_to_select(try_fix_pos: bool = False) -> bool:
             self._refresh()
             if self.is_on_island_select_page_no_refresh():
                 return True
-            return self.exit_map_to_island_select()
+            return self.exit_map_to_island_select(perform_fix_pos=try_fix_pos)
 
         def enter_island(st: _SyncState) -> bool:
             self._refresh()
             if not self.is_on_island_select_page_no_refresh():
-                if not leave_to_select():
+                if not leave_to_select(try_fix_pos=False):
                     self.logger.error("同步抓帕鲁：切换/进入前退出地图失败")
                     st.error = True
                     return False
 
             if not self.enter_map(st.profile):
-                self.logger.error(f"同步抓帕鲁：进入{st.profile.name}失败，标记异常")
+                self.logger.error(f"同步抓帕鲁：进入{st.profile.name}失败")
                 st.error = True
                 return False
 
             self.sleep_with_log(st.profile.enter_wait_sec)
             return True
 
-        def do_one_round(st: _SyncState) -> str:
+        # === [核心修复] 封装“插入任务”的全流程 ===
+        # 包含：进入 -> 抓一次 -> 退出(自动判断是否修正位移)
+        def run_side_task(st: _SyncState) -> bool:
+            if not enter_island(st):
+                return False
+
+            # 抓捕
             r = self.capture_once(st.profile)
-            if not self.exit_map_to_island_select():
-                self.logger.error(f"{st.profile.name}：轮次退出失败，标记异常")
-                st.error = True
-            return r
+            mark_result(st, r)
 
-        # 起始策略：先长周期，再短周期常驻
+            # 退出（如果是定点模式，则需要修正位移）
+            need_fix = (st.mode == 0)
+            if not leave_to_select(try_fix_pos=need_fix):
+                self.logger.error(f"{st.profile.name}：插入任务后退出失败")
+                return False
+
+            return True
+
+        # ==========================================
+        # 启动策略
+        # ==========================================
         long_st, short_st = (partner, adventure) if partner.period_sec() >= adventure.period_sec() else (adventure, partner)
-        self.logger.info(
-            f"同步抓帕鲁：启动先处理周期更长的岛={long_st.profile.name} (period≈{long_st.period_sec():.0f}s)，常驻岛={short_st.profile.name}"
-        )
+        self.logger.info(f"启动策略：优先处理长周期 [{long_st.profile.name}]，然后常驻 [{short_st.profile.name}]")
 
-        if enter_island(long_st):
-            rr = do_one_round(long_st)
-            mark_result(long_st, rr)
+        # 1. 先跑一次长周期的岛 (利用 run_side_task 直接完成进+抓+退)
+        if available(long_st):
+            run_side_task(long_st)
 
-            if not leave_to_select():
-                state = self.wait_for_start_page(timeout_sec=60.0)
-                if state != "ISLAND_SELECT":
-                    self.logger.error("等待用户回到选岛页面失败，停止抓帕鲁")
-                    return
-
-            if not enter_island(short_st):
-                self.logger.error("同步抓帕鲁：常驻岛进入失败，终止")
+        # 2. 准备进入常驻岛
+        if not available(short_st):
+            # 如果常驻岛不可用（比如刚运行就出错），尝试切回长周期岛做主岛
+            if available(long_st):
+                current, other = long_st, short_st
+            else:
+                self.logger.error("同步抓帕鲁：无可用岛屿，结束")
                 return
-            current, other = short_st, long_st
         else:
             if not enter_island(short_st):
-                self.logger.error("同步抓帕鲁：两岛均无法进入，终止")
+                self.logger.error("同步抓帕鲁：初始进入常驻岛失败")
                 return
             current, other = short_st, long_st
 
         last_switch = time.time()
 
+        # ==========================================
+        # 主循环
+        # ==========================================
         while self.auto.running:
             if all_finished_or_error():
-                self.logger.warn("同步抓帕鲁：两岛均已完成/异常，结束")
+                self.logger.warn("同步抓帕鲁：所有任务完成或异常，结束")
                 return
 
+            # A. 检查当前岛是否还可用
             if not available(current):
-                current, other = other, current
+                current, other = other, current # 交换
                 if not available(current):
-                    self.logger.warn("同步抓帕鲁：剩余可用岛不存在，结束")
+                    self.logger.warn("同步抓帕鲁：无剩余可用岛，结束")
                     return
+                # 交换后需要进入新岛
                 if not enter_island(current):
                     continue
                 last_switch = time.time()
 
+            # B. 在当前岛抓一次
             r = self.capture_once(current.profile)
-            stop_now = mark_result(current, r)
-            if stop_now:
-                if not leave_to_select():
-                    self.logger.error("同步抓帕鲁：状态切换前退出地图失败，终止")
-                    return
+            stop_current = mark_result(current, r)
+
+            # C. 如果当前岛由于结果（如上限）需要停止，强制退出并进入下一轮循环（会触发A处的交换）
+            if stop_current:
+                need_fix = (current.mode == 0)
+                leave_to_select(try_fix_pos=need_fix)
                 continue
 
+            # D. 判断是否需要切出去做“插入任务”
+            # 条件：另一个岛可用 且 时间到了
             need_switch = available(other) and ((time.time() - last_switch) >= sync_every_sec)
 
             if current.mode == 1:
-                # 巡逻：每轮都退出
-                if not leave_to_select():
-                    self.logger.error(f"{current.profile.name}：退出地图失败，停止同步")
+                # === 当前是巡逻模式 ===
+                # 巡逻模式每轮必须退出
+                if not leave_to_select(try_fix_pos=False):
                     return
 
                 if need_switch:
-                    self.logger.info(f"同步抓帕鲁：到达周期，插入 {other.profile.name} 抓一轮")
-                    if enter_island(other):
-                        rr = do_one_round(other)
-                        mark_result(other, rr)
-                        last_switch = time.time()
+                    self.logger.info(f"同步周期到达：插入 [{other.profile.name}]")
+                    run_side_task(other) # 进 -> 抓 -> 退
+                    last_switch = time.time()
+
+                    # 重新进入 Current (因为上面切出去了)
                     if available(current):
-                        if not enter_island(current):
-                            continue
+                        if not enter_island(current): continue
                 else:
-                    self.sleep_with_log(current.profile.patrol_refresh_interval_sec, f"{current.profile.name} 巡逻刷新等待")
-                    if not enter_island(current):
-                        continue
+                    # 没到切岛时间，等待巡逻CD
+                    self.sleep_with_log(current.profile.patrol_refresh_interval_sec, f"{current.profile.name} 巡逻冷却")
+                    if not enter_island(current): continue
+
             else:
-                # 定点：默认留在图内
+                # === 当前是定点模式 ===
+                # 默认留在地图内
                 if need_switch:
-                    self.logger.info(f"同步抓帕鲁：到达周期，插入 {other.profile.name} 抓一轮")
-                    if not leave_to_select():
-                        self.logger.error("同步抓帕鲁：定点切岛前退出地图失败，终止")
+                    self.logger.info(f"同步周期到达：插入 [{other.profile.name}]")
+
+                    # 1. 退出当前定点岛 (关键：这里要修正位移！)
+                    if not leave_to_select(try_fix_pos=True):
                         return
-                    if enter_island(other):
-                        rr = do_one_round(other)
-                        mark_result(other, rr)
-                        last_switch = time.time()
+
+                    # 2. 去由于岛跑一圈
+                    run_side_task(other)
+                    last_switch = time.time()
+
+                    # 3. 回到当前岛
                     if available(current):
-                        if not enter_island(current):
-                            continue
+                        if not enter_island(current): continue
                 else:
+                    # 没到切岛时间，原地等待刷新
                     self.sleep_with_log(current.profile.fixed_interval_sec, f"{current.profile.name} 等待刷新")
 
     # =========================================================
@@ -502,7 +524,11 @@ class CapturePalsModule:
         )
         return False
 
-    def exit_map_to_island_select(self) -> bool:
+    def exit_map_to_island_select(self, perform_fix_pos: bool = False) -> bool:
+        """
+        退出地图并返回选岛界面。
+        :param perform_fix_pos: 是否在退出操作前执行位移修正（用于定点模式）
+        """
         timeout = Timer(20).start()
 
         while not timeout.reached():
@@ -515,6 +541,17 @@ class CapturePalsModule:
 
             # 只在地图内才执行退出链
             if self.is_in_map_no_refresh():
+                # ===== [新增] 位移修正逻辑 =====
+                if perform_fix_pos:
+                    self.logger.info("定点模式退出前位移修正: A(0.33s) -> Wait(0.2s) -> S(0.033s)")
+                    self.auto.press_key("a", press_time=0.33)
+                    self.sleep_with_log(0.2)
+                    self.auto.press_key("s", press_time=0.033)
+                    self.sleep_with_log(0.2)
+                    # 修正只执行一次，避免在重试循环中重复位移导致偏离更远
+                    perform_fix_pos = False
+                # ==============================
+
                 self._right_click_repeat(656 / 1920, 497 / 1080)
                 self.sleep_with_log(0.2)
 
